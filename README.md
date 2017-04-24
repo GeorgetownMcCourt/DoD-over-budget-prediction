@@ -7,20 +7,31 @@ Given the sheer scope and variety of these contacts, it can be difficult for tho
 
 
 ## Use
-TODO: Specific example of what happens in your project (e.g. what's going on under the hood)
+A new or proposed contract will be evaluated based on the conditions known at the time of selection, including proposed amount, number of competitive bids, type of work, the prime contractor, etc. Then, two separate Random Forest models (with the same features) that have each been trained on a set of fully completed contracts predict the likelihood that the new contract will fall into one of the two risk categories.
 
 ## Data Used
-TODO: Where you got your data, description about the data
+The data for this project originally come from the Federal Procurement Data System, available from USAspending.gov. These data consist of tens of millions of line items, recording every instance of an action on federal contracts: Starts, modifications, task orders, and terminations. The data are available from Fiscal Year 2000. New entries appear daily, but are not made publically available until 30 days after the contract award (90 days for DoD). For our analysis, the data will be aggregated to the contract level. Each contract will then have its own characteristics including:
 
-## Installation
-TODO: Describe the installation process 
-Note: only for cases where you're developing a new package or software.
+* Prime Contractor Name and Details
+* Contract Start Date and Projected Completion Date
+* Contract Budget Amount (base and all options)
+* Total amount spent on contract over its full run
+* Contract pricing type (e.g. Fixed Price, Cost-based, Combination)
+* Price and performance incentives associated with the contract
+* Whether a contract was intended for a single purpose, or as a vehicle for multiple task
+orders
+* Whether a contract was made available for competitive bidding
+* Number of offers received for the contract, if it was bid competitively
+* Which component of DoD awarded the contract (e.g. Army, Navy, Air Force)
+* Whether any of the contract performance took place outside the U.S.
+* Whether the contract was for Products, Services, or R&D
+
+To ensure that all data points are on a similar level of data completeness, we will only include in our analysis contracts that have already concluded, either by completion or cancellation. This will help to avoid the training uncertainty of "contracts that might go over budget but haven't yet."
 
 ## Usage
-TODO: Write usage instructions 
-Note: If you're providing a new package or software, provide examples of how to use your code (example: https://github.com/CommerceDataService/eu.us.opendata). If you're providing an analytical output, describe what goes on each file or how to run it.
+All analysis, from exploratory data analysis to model training and predictions, is contained within the file "Defense Contract Prediction.R"
 
-
+Later versions may include additional code to directly query the raw database for more precise variable aggregation.
 
 ## Progress Log
 * (April 2017) Identified data source
@@ -34,9 +45,9 @@ Note: If you're providing a new package or software, provide examples of how to 
 * (TBD) Produce report for model and results
 
 ## Credits
+Project Team: Bryan Baird, Loren Lipsy, Tommie Thompson -- Georgetown University
 
-TODO: Write credits. Who is on the project.
+Preliminary data processing based on the work of Greg Sanders at the Center for Strategic and International Studies
 
 ## License
-
-TODO: Write license if you want people to use. Take a look here:  https://choosealicense.com/
+Licensed under GNU General Public License v3.0
