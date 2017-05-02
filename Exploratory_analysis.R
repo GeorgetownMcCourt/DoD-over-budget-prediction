@@ -1,5 +1,6 @@
 ## Exploratory analysis + a data viz assignment
 
+# added for github
 ## goal: first, make a chart about whether contracts set aside for small
 # business are more likely to get terminated.
 
