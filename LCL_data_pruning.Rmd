@@ -1,0 +1,298 @@
+---
+title: "LCL_data_pruning"
+output: html_notebook
+---
+
+This notebook reads five .Rda files created by LCL_data_merging.Rmd.  It investigates the data and drops both observations and variables, with the goal of creating a dataset for analysis with:
+
+- Observations that are award (i.e. not IDV) contracts only
+- Observations that are completed (i.e. not ongoing) contracts only
+- Variables that exist at the award of the contract (i.e. are prior to performance)
+
+Setup:
+```{r}
+library(magrittr)
+library(tidyverse)
+
+```
+
+construct index:
+
+```{r}
+# load("contracts_1.Rda")
+# var_names <- names(CompleteContracts)
+# rda_index <- rep("contracts_1.Rda", length(names(CompleteContracts)))
+# rm(CompleteContracts)
+# 
+# load("contracts_2.Rda")
+# var_names <- c(var_names, names(CompleteContracts))
+# rda_index <- c(rda_index, rep("contracts_2.Rda", length(names(CompleteContracts))))
+# rm(CompleteContracts)
+# 
+# load("contracts_3.Rda")
+# var_names <- c(var_names, names(CompleteContracts))
+# rda_index <- c(rda_index, rep("contracts_3.Rda", length(names(CompleteContracts))))
+# rm(CompleteContracts)
+# 
+# load("contracts_4.Rda")
+# var_names <- c(var_names, names(CompleteContracts))
+# rda_index <- c(rda_index, rep("contracts_4.Rda", length(names(CompleteContracts))))
+# rm(CompleteContracts)
+# 
+# load("contracts_5.Rda")
+# var_names <- c(var_names, names(CompleteContracts))
+# rda_index <- c(rda_index, rep("contracts_5.Rda", length(names(CompleteContracts))))
+# rm(CompleteContracts)
+# 
+# var_index <- data.frame(cbind(var_names, rda_index))
+# 
+# save(var_index, file = "index.Rda")
+
+load("index.Rda")
+
+```
+
+Restrict to non-IDV contracts:
+
+```{r}
+load("contracts_1.Rda")
+load("greg_IDV_code.Rda")
+```
+
+
+```{r}
+CompleteContracts %<>% left_join(asdf)
+```
+
+```{r}
+CompleteContracts %<>% filter(IDV == "Def/Pur")
+rm(asdf)
+```
+
+
+Subset to closed contracts:
+
+```{r}
+CompleteContracts%<>%
+  filter(
+    IsClosed == 1 |
+    LastUltimateCompletionDate <= as_date("2013-09-30") |
+    LastCurrentCompletionDate <= as_date("2012-10-01"))  
+```
+
+
+
+Merge next file:
+
+```{r}
+dataset <- CompleteContracts
+load("contracts_2.Rda")
+dataset %<>% left_join(CompleteContracts)
+```
+
+
+
+Next:
+```{r}
+rm(CompleteContracts)
+load("contracts_3.Rda")
+```
+
+
+```{r}
+dataset %<>% left_join(CompleteContracts)
+```
+
+Next file:
+
+
+```{r}
+rm(CompleteContracts)
+load("contracts_4.Rda")
+```
+
+
+```{r}
+dataset %<>% left_join(select(CompleteContracts, -IsIDV))
+```
+
+
+final one:
+
+```{r}
+rm(CompleteContracts)
+load("contracts_5.Rda")
+```
+
+
+```{r}
+dataset %<>% left_join(CompleteContracts)
+rm(CompleteContracts)
+```
+
+
+
+
+Remove non-prior features:
+```{r}
+dataset %<>%
+  select(
+    -Action.Obligation,
+    -ChangeOrderBaseAndAllOptionsValue,
+    -ChangeOrderObligatedAmount,
+    -Pricing.Mechanism.Code,
+    -ObligatedAmountIsFixedPrice,
+    -IsFixedPrice,
+    -ObligatedAmountIsCostBased,
+    -IsCostBased,
+    -ObligatedAmountIsCombination,
+    -IsCombination,
+    -ObligatedAmountIsIncentive,
+    -IsIncentive,
+    -ObligatedAmountIsAwardFee,
+    -IsAwardFee,
+    -ObligatedAmountIsFFPorNoFee,
+    -IsFFPorNoFee,
+    -ObligatedAmountIsFixedFee,
+    -IsFixedFee,
+    -ObligatedAmountIsOtherFee,
+    -IsOtherFee,
+    -pIsFixedPrice,
+    -pIsCostBased,
+    -Is_NA_ObligatedAmountIsFixedPrice,
+    -Is_NA_ObligatedAmountIsCostBased,
+    -pIsCombination,
+    -Is_NA_ObligatedAmountIsCombination,
+    -FixedOrCost,
+    -pIsIncentive,
+    -Is_NA_ObligatedAmountIsIncentive,
+    -pIsAwardFee,
+    -Is_NA_ObligatedAmountIsAwardFee,
+    -pIsFFPorNoFee,
+    -Is_NA_ObligatedAmountIsFFPorNoFee,
+    -pIsFixedFee,
+    -Is_NA_ObligatedAmountIsFixedFee,
+    -pIsOtherFee,
+    -Is_NA_ObligatedAmountIsOtherFee)
+```
+
+
+```{r}
+dataset %<>% select(
+  -IsClosed,
+  -LastSignedLastDateToOrder,
+  -LastUltimateCompletionDate,
+  -LastCurrentCompletionDate,
+  -SumOfnumberOfActions,
+  -ContractBaseAndAllOptionsValue,
+  -ContractBaseAndExercisedOptionsValue,
+  -maxoffiscal_year,
+  -IsIDV,
+  -SystemEquipmentInterlinked,
+  -ContractingOfficePlatformInterlinked,
+  -Is_NA_ContractingOfficePlatformInterlinked,
+  -Is_NA_SystemEquipmentInterlinked,
+  -LinkedContracts,
+  -ChangeOrderBaseAndExercisedOptionsValue,
+  -NewWorkBaseAndAllOptionsValue,
+  -NewWorkBaseAndExercisedOptionsValue,
+  -NewWorkObligatedAmount,
+  -IDV,
+  -PlaceCountryISO3,
+  -ObligatedAmountIsInternational,
+  -AnyInternational,
+  -IsInternational,
+  -pIsInternational,
+  -is_NA_ObligatedAmountIsInternational,
+  -IsModified,
+  -SumOfisChangeOrder,
+  -MaxOfisChangeOrder,
+  -SumOfisNewWork,
+  -MaxOfisNewWork)
+```
+
+
+```{r}
+dataset %<>%
+  select(
+    -pChangeOrderObligated,
+    -PlatformPortfolio,
+    -ObligatedAmountIsAir,
+    -ObligatedAmountIsEnC,
+    -ObligatedAmountIsFRSnC,
+    -ObligatedAmountIsLand,
+    -ObligatedAmountIsMnS,
+    -ObligatedAmountIsOtherPP,
+    -ObligatedAmountIsVessel,
+    -ObligatedAmountIsWnA,
+    -ProductOrServiceArea,
+    -SimpleArea,
+    -ObligatedAmountIsProducts,
+    -ObligatedAmountIsServices,
+    -ObligatedAmountIsRnD,
+    -MaxOfIsPossibleSoftwareEngineering,
+    -pIsProducts,
+    -Is_NA_ObligatedAmountIsProducts,
+    -pIsServices,
+    -Is_NA_ObligatedAmountIsServices,
+    -pIsRnD,
+    -Is_NA_ObligatedAmountIsRnD,
+    -pIsLand,
+    -Is_NA_ObligatedAmountIsLand,
+    -pIsVessel,
+    -Is_NA_ObligatedAmountIsVessel,
+    -pIsAir,
+    -Is_NA_ObligatedAmountIsAir,
+    -pIsEnC,
+    -Is_NA_ObligatedAmountIsEnC,
+    -pIsFRSnC,
+    -Is_NA_ObligatedAmountIsFRSnC,
+    -pIsMnS,
+    -Is_NA_ObligatedAmountIsMnS,
+    -MaxOfIsUndefinitizedAction,
+    -NumberOfOffersReceived,
+    -IsFullAndOpen,
+    -IsSomeCompetition,
+    -ObligatedAmountIsSomeCompetition,
+    -IsOnlyOneSource,
+    -IsFollowonToCompetedAction,
+    -multipleorsingleawardidc,
+    -AddMultipleOrSingleAwardIDC,
+    -AwardOrIDVcontractActionType)
+```
+
+
+```{r}
+dataset %<>%
+  select(
+    -pIsOtherPP,
+    -Is_NA_ObligatedAmountIsOtherPP,
+    -Customer,
+    -SubCustomer,
+    -ObligatedAmountIsArmy,
+    -ObligatedAmountIsNavy,
+    -ObligatedAmountIsAirForce,
+    -ObligatedAmountIsOtherDoD,
+    -pIsArmy,
+    -pIsNavy,
+    -pIsAirForce,
+    -pIsOtherDoD,
+    -Is_NA_ObligatedAmountIsArmy,
+    -Is_NA_ObligatedAmountIsNavy,
+    -Is_NA_ObligatedAmountIsOtherDoD,
+    -Is_NA_ObligatedAmountIsAirForce,
+    -IsLabeledPricing,
+    -Fee)
+```
+
+
+drop missing outcomes
+```{r}
+dataset %<>% filter(
+  !(is.na(dataset$pChangeOrderUnmodifiedBaseAndAll) & is.na(dataset$IsTerminated)))
+```
+
+
+```{r}
+save(dataset, file = "clean_dataset.Rda")
+```

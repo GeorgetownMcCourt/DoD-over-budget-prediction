@@ -1,0 +1,688 @@
+---
+title: "defense contracts data merge"
+output: html_notebook
+---
+
+This workbook is attempting to investigate the merge of multiple SQL outputs for defense contract termination data, which is originally done in defense_contract_model_complete.Rmd.  This script will look for opportunities to keep more or different variables to facilitate random forest modeling.
+
+Load packages
+
+```{r, message=FALSE}
+library(data.table)  #fread
+library(magrittr)
+library(tidyverse)
+library(forcats)
+library(lubridate)
+options(scipen = 99)
+```
+
+
+Adopt Greg's variable names
+
+```{r}
+Greg_vars <- fread("Lookup_StandardizeVariableNames.csv")
+lookup_var <- function(var_name){
+  if(tolower(var_name) %in% tolower(Greg_vars$Original)){
+    return(Greg_vars$Replacement[which(tolower(Greg_vars$Original) == tolower(var_name))])
+  }
+  return(var_name)
+}
+standardize_names <- function(df){
+  names(df) <- (sapply(names(df), lookup_var))
+  return(df)
+}
+```
+read first file
+
+```{r}
+CompleteContracts <- fread(
+  "defense_contract_SP_ContractSampleCriteriaDetailsCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE)
+
+```
+
+Reclass the dates
+```{r}
+CompleteContracts$LastCurrentCompletionDate %<>% as_date()
+CompleteContracts$LastSignedLastDateToOrder %<>% as_date()
+CompleteContracts$LastUltimateCompletionDate %<>% as_date()
+CompleteContracts$MinOfSignedDate %<>% as_date()
+CompleteContracts$MinOfEffectiveDate %<>% as_date()
+```
+
+Standardize names
+```{r}
+CompleteContracts %<>% standardize_names()
+```
+
+Greg drops all contracts beforer 2007 because of poor reporting of key variables (contract ceilings).  I will follow suit because I expect that to be a crucial variable for our analysis as well.  He also drops those with a LastCurrentCompletionDate after the end of fiscal 2013, but I'll keep those for now.
+
+```{r}
+CompleteContracts %<>% filter(StartFiscal_Year >= 2007)
+```
+
+------------------------
+
+Next file:
+```{r}
+file_2 <- fread(
+  "defense_contract_ContractDiscretization.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE)
+```
+
+
+```{r}
+str(file_2)
+```
+
+What's maxoffiscal_year? is it the same as StartFiscal_Year?
+
+```{r}
+mean(file_2$StartFiscal_Year == file_2$maxoffiscal_year, na.rm = TRUE)
+```
+
+Mostly, but not entirely.  Maybe it tracks the most recent task order for IDV contracts?  Since we're dropping IDVs, we wouldn't care about that.
+
+```{r}
+file_2 %>%
+  filter(IsIDV == 0) %>%
+  summarize(mean(StartFiscal_Year == maxoffiscal_year, na.rm = TRUE))
+```
+
+Guess not.  Let's keep it until I can ask Greg what it is.
+
+He said it's the final year of any contract action, but not necessarily related to the close of the contract.  He didn't use it as a factor in determining closure.
+
+
+
+Join tables
+
+```{r}
+file_2 %<>% standardize_names()
+CompleteContracts %<>% left_join(file_2)
+```
+
+-------------
+Next file:
+
+```{r}
+rm(file_2)
+file_3 <- fread(
+  "defense_contract_SP_ContractInterlinkedUnmodifiedSystemEquipmentPlatform.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE)
+file_4 <- fread(
+  "Office_processedCSIScontractIDtoContractingOfficeID_linked.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE)
+
+```
+
+
+```{r}
+str(file_3)
+str(file_4)
+```
+
+Merge:
+
+```{r}
+file_3 %<>% standardize_names()
+file_4 %<>% standardize_names()
+CompleteContracts %<>% left_join(file_3)
+CompleteContracts %<>% left_join(file_4)
+str(CompleteContracts)
+```
+
+
+I frankly have no idea what linked contracts are, and am just going to copy what Greg did with them - except I won't bucket the resulting continuous variable
+
+```{r}
+CompleteContracts$Is_NA_ContractingOfficePlatformInterlinked <- is.na(
+  CompleteContracts$ContractingOfficePlatformInterlinked)
+CompleteContracts$Is_NA_SystemEquipmentInterlinked <- is.na(
+  CompleteContracts$SystemEquipmentInterlinked)
+
+CompleteContracts$ContractingOfficePlatformInterlinked[is.na(CompleteContracts$ContractingOfficePlatformInterlinked)]<-0
+CompleteContracts$SystemEquipmentInterlinked[is.na(CompleteContracts$SystemEquipmentInterlinked)]<-0
+CompleteContracts$LinkedContracts <- CompleteContracts$ContractingOfficePlatformInterlinked + CompleteContracts$SystemEquipmentInterlinked
+```
+
+Greg: Linked contracts means how many contracts either A. have the same system equipment code, or B. have both the same contracting office and the same platform, as the listed contract.  I was trying to reflect the fact that contract outcomes are in part dependent on other contracts for closely related work, they aren't totally independent.  But this methodology is not very trustworthy.
+
+
+Seems that having a unmodifiedSystemequipmentcode means being labeled as an MDAP; Greg creates a new variable to reflect this
+
+--------------
+Next file:
+
+```{r}
+rm(file_3)
+rm(file_4)
+file_5 <- fread(
+  "defense_contract_SP_ContractModificationDeltaCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE
+)
+
+```
+
+Merge:
+
+```{r}
+file_5 %<>% standardize_names()
+CompleteContracts %<>% left_join(file_5)
+```
+
+```{r}
+CompleteContracts$LabeledMDAP <- ifelse(is.na(CompleteContracts$unmodifiedSystemequipmentcode), "No label", "Labeled MDAP")
+CompleteContracts$LabeledMDAP %<>% factor()
+```
+
+
+Reclass factors:
+```{r}
+CompleteContracts$unmodifiedSystemequipmentcode %<>% factor()
+```
+
+
+
+
+Keep a copy of the contractID and fiscal year to reflect this subset of contracts for future merges.
+```{r}
+key_vars <- select(CompleteContracts, CSIScontractID, StartFiscal_Year, Action.Obligation, MinOfEffectiveDate, ChangeOrderBaseAndAllOptionsValue, ChangeOrderObligatedAmount)
+```
+
+
+Write out and clear memory:
+```{r}
+save(CompleteContracts, file = "contracts_1.Rda")
+rm(CompleteContracts)
+CompleteContracts <- key_vars
+```
+
+
+
+-----------
+
+Next File:
+```{r}
+rm(file_5)
+file_6 <- fread(
+  "defense_contract_SP_ContractLocationCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE
+)
+
+```
+
+
+Not sure why that couldn't read the column headers.  Fix it:
+```{r}
+names(file_6) <- c(
+  "CSIScontractID", "PlaceCountryISO3", "UnmodifiedPlaceCountryISO3", "ObligatedAmountIsInternational", "AnyInternational", "IsInternational", "UnmodifiedIsInternational")
+```
+
+
+Merge:
+```{r}
+file_6 %<>% standardize_names()
+CompleteContracts %<>% left_join(file_6)
+```
+
+
+Following Greg on some variable definitions:
+```{r}
+CompleteContracts$pIsInternational<- CompleteContracts$ObligatedAmountIsInternational/
+    CompleteContracts$Action.Obligation
+CompleteContracts$is_NA_ObligatedAmountIsInternational <- is.na(CompleteContracts$ObligatedAmountIsInternational)
+CompleteContracts$pIsInternational[is.na(CompleteContracts$ObligatedAmountIsInternational)] <- 0
+
+CompleteContracts$AnyInternational %<>% factor(
+  levels=c(0,1),
+  labels=c("Just U.S.","Any International"))
+
+CompleteContracts$AnyInternational[
+  CompleteContracts$pIsInternationalzeroedNA <=0 & 
+  CompleteContracts$AnyInternational=="Any International" &
+  CompleteContracts$UnmodifiedIsInternational==0] <- "Just U.S."
+
+```
+
+Greg drops a lot of these:
+UnmodifiedIsInternational,
+IsInternational,
+ObligatedAmountIsInternational,
+UnmodifiedPlaceCountryISO3,
+PlaceCountryISO3,
+
+I kept them.
+
+----------
+
+Next File:
+
+```{r}
+rm(file_6)
+file_7 <- fread(
+  "Defense_contract_SP_ContractUnmodifiedandOutcomeDetailsCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE
+)
+```
+
+```{r}
+file_7 %<>% standardize_names()
+str(file_7)
+```
+
+
+Reclass dates:
+```{r}
+file_7$UnmodifiedCurrentCompletionDate %<>% as_date()
+file_7$UnmodifiedUltimateCompletionDate %<>% as_date()
+file_7$UnmodifiedLastDateToOrder %<>% as_date()
+```
+
+
+Merge:
+```{r}
+file_7 %<>% standardize_names()
+CompleteContracts %<>% left_join(file_7)
+```
+
+
+Create duration variable:
+```{r}
+CompleteContracts %<>%
+  mutate(UnmodifiedDays = UnmodifiedCurrentCompletionDate - MinOfEffectiveDate + 1)
+
+```
+
+Skipped a lot of bucketing Greg did here.
+
+
+Change order variable creation:
+```{r}
+CompleteContracts$pChangeOrderObligated<-CompleteContracts$ChangeOrderObligatedAmount/
+    CompleteContracts$Action.Obligation
+CompleteContracts$pChangeOrderObligated[is.na(CompleteContracts$pChangeOrderObligated)&
+                                            CompleteContracts$SumOfisChangeOrder==0]<-0
+CompleteContracts$ChangeOrderObligatedAmount[is.na(CompleteContracts$ChangeOrderObligatedAmount)&
+                                            CompleteContracts$SumOfisChangeOrder==0]<-0
+CompleteContracts$pChangeOrderUnmodifiedBaseAndAll<-CompleteContracts$ChangeOrderBaseAndAllOptionsValue/
+    CompleteContracts$UnmodifiedContractBaseAndAllOptionsValue
+CompleteContracts$pChangeOrderUnmodifiedBaseAndAll[is.na(CompleteContracts$pChangeOrderUnmodifiedBaseAndAll)&CompleteContracts$SumOfisChangeOrder==0]<-0
+```
+
+
+Greg drops (but I keep):
+MinOfSignedDate,
+LastUltimateCompletionDate
+
+
+Reclass factors:
+```{r}
+CompleteContracts$UnmodifiedPlaceCountryISO3 %<>% factor()
+CompleteContracts$PlaceCountryISO3 %<>% factor()
+
+```
+
+
+
+Write out:
+```{r}
+save(CompleteContracts, file = "contracts_2.Rda")
+rm(CompleteContracts)
+CompleteContracts <- key_vars
+```
+
+
+---------
+Next File:
+```{r}
+rm(file_7)
+file_8 <- fread(
+  "defense_contract_SP_ContractBucketPlatformCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE
+)
+```
+
+```{r}
+file_8 %<>% standardize_names()
+str(file_8)
+```
+
+Merge:
+```{r}
+CompleteContracts %<>% left_join(file_8)
+```
+
+
+Follow Greg in variable creation:
+```{r}
+CompleteContracts$pIsProducts <- CompleteContracts$ObligatedAmountIsProducts/CompleteContracts$Action.Obligation
+CompleteContracts$pIsProducts[is.na(CompleteContracts$ObligatedAmountIsProducts)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsProducts <- is.na(CompleteContracts$ObligatedAmountIsProducts)
+
+CompleteContracts$pIsServices <- CompleteContracts$ObligatedAmountIsServices/CompleteContracts$Action.Obligation
+CompleteContracts$pIsServices[is.na(CompleteContracts$ObligatedAmountIsServices)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsServices <- is.na(CompleteContracts$ObligatedAmountIsServices)
+
+
+CompleteContracts$pIsRnD <- CompleteContracts$ObligatedAmountIsRnD/CompleteContracts$Action.Obligation
+CompleteContracts$pIsRnD[is.na(CompleteContracts$ObligatedAmountIsRnD)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsRnD <- is.na(CompleteContracts$ObligatedAmountIsRnD)
+
+
+
+CompleteContracts$pIsLand <- CompleteContracts$ObligatedAmountIsLand/CompleteContracts$Action.Obligation
+CompleteContracts$pIsLand[is.nan(CompleteContracts$pIsLand)|is.infinite(CompleteContracts$pIsLand)|is.na(CompleteContracts$ObligatedAmountIsLand)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsLand <- is.na(CompleteContracts$ObligatedAmountIsLand)
+
+CompleteContracts$pIsVessel <- CompleteContracts$ObligatedAmountIsVessel/CompleteContracts$Action.Obligation
+CompleteContracts$pIsVessel[is.nan(CompleteContracts$pIsVessel)|is.infinite(CompleteContracts$pIsVessel)|is.na(CompleteContracts$ObligatedAmountIsVessel)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsVessel <- is.na(CompleteContracts$ObligatedAmountIsVessel)
+
+CompleteContracts$pIsOtherPP <- CompleteContracts$ObligatedAmountIsOtherPP/CompleteContracts$Action.Obligation
+CompleteContracts$pIsOtherPP[is.nan(CompleteContracts$pIsOtherPP)|is.infinite(CompleteContracts$pIsOtherPP)|is.na(CompleteContracts$ObligatedAmountIsOtherPP)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsOtherPP <- is.na(CompleteContracts$ObligatedAmountIsOtherPP)
+
+CompleteContracts$pIsAir <- CompleteContracts$ObligatedAmountIsAir/CompleteContracts$Action.Obligation
+CompleteContracts$pIsAir[is.nan(CompleteContracts$pIsAir)|is.infinite(CompleteContracts$pIsAir)|is.na(CompleteContracts$ObligatedAmountIsAir)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsAir <- is.na(CompleteContracts$ObligatedAmountIsAir)
+
+CompleteContracts$pIsEnC <- CompleteContracts$ObligatedAmountIsEnC/CompleteContracts$Action.Obligation
+CompleteContracts$pIsEnC[is.nan(CompleteContracts$pIsEnC)|is.infinite(CompleteContracts$pIsEnC)|is.na(CompleteContracts$ObligatedAmountIsEnC)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsEnC <- is.na(CompleteContracts$ObligatedAmountIsEnC)
+
+CompleteContracts$pIsFRSnC <- CompleteContracts$ObligatedAmountIsFRSnC/CompleteContracts$Action.Obligation
+CompleteContracts$pIsFRSnC[is.nan(CompleteContracts$pIsFRSnC)|is.infinite(CompleteContracts$pIsFRSnC)|is.na(CompleteContracts$ObligatedAmountIsFRSnC)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsFRSnC <- is.na(CompleteContracts$ObligatedAmountIsFRSnC)
+
+
+CompleteContracts$pIsMnS <- CompleteContracts$ObligatedAmountIsMnS/CompleteContracts$Action.Obligation
+CompleteContracts$pIsMnS[is.nan(CompleteContracts$pIsMnS)|is.infinite(CompleteContracts$pIsMnS)|is.na(CompleteContracts$ObligatedAmountIsMnS)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsMnS <- is.na(CompleteContracts$ObligatedAmountIsMnS)
+```
+
+
+Reclass factors:
+```{r}
+CompleteContracts$UnmodifiedSimpleArea %<>% factor()
+CompleteContracts$SimpleArea %<>% factor()
+CompleteContracts$UnmodifiedProductOrServiceArea %<>% factor()
+CompleteContracts$ProductOrServiceArea %<>% factor()
+CompleteContracts$UnmodifiedPlatformPortfolio %<>% factor()
+CompleteContracts$PlatformPortfolio %<>% factor()
+```
+
+
+
+
+Write out:
+```{r}
+save(CompleteContracts, file = "contracts_3.Rda")
+rm(CompleteContracts)
+CompleteContracts <- key_vars
+```
+
+
+
+------
+Next File:
+
+```{r}
+rm(file_8)
+file_9 <- fread(
+  "defense_contract_SP_ContractUnmodifiedCompetitionvehicleCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE
+)
+file_10 <- fread(
+  "defense_contract_SP_ContractCompetitionVehicleCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE
+)
+
+```
+
+```{r}
+file_9 %<>% standardize_names()
+file_10 %<>% standardize_names()
+str(file_9)
+str(file_10)
+```
+
+reclass factors:
+```{r}
+file_9$Unmodifiedmultipleorsingleawardidc %<>% factor()
+file_9$UnmodifiedAwardOrIDVcontractactiontype %<>% factor()
+file_10$multipleorsingleawardidc %<>% factor()
+file_10$AwardOrIDVcontractActionType %<>% factor()
+```
+
+
+
+Merge:
+```{r}
+file_9 %<>% standardize_names()
+file_10 %<>% standardize_names()
+
+CompleteContracts %<>% left_join(file_9)
+CompleteContracts %<>% left_join(file_10)
+```
+
+
+```{r}
+NAnumberOfOffers<-is.na(CompleteContracts$UnmodifiedNumberOfOffersReceived)&
+    !is.na(CompleteContracts$NumberOfOffersReceived)
+CompleteContracts$UnmodifiedNumberOfOffersReceived[NAnumberOfOffers]<-
+    CompleteContracts$NumberOfOffersReceived[NAnumberOfOffers]
+rm(NAnumberOfOffers)
+
+CompleteContracts$IsIDV<-factor(CompleteContracts$IsIDV,levels=c(0,1),labels=c("Def/Pur","IDV"))
+```
+
+
+Greg drops:
+IsFullAndOpen,
+IsFollowonToCompetedAction
+UnmodifiedIsOnlyOneSource,
+UnmodifiedIsFollowonToCompetedAction,
+
+
+
+
+
+
+------
+Next File:
+
+
+```{r}
+rm(file_9)
+rm(file_10)
+file_11 <- fread(
+  "Defense_Contract_SP_ContractDefenseSubCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE
+)
+```
+
+```{r}
+file_11 %<>% standardize_names()
+str(file_11)
+```
+
+
+Merge:
+```{r}
+CompleteContracts %<>% left_join(file_11)
+```
+
+
+```{r}
+CompleteContracts$pIsArmy <- CompleteContracts$ObligatedAmountIsArmy/CompleteContracts$Action.Obligation
+CompleteContracts$pIsArmy[is.nan(CompleteContracts$pIsArmy)|is.infinite(CompleteContracts$pIsArmy)|is.na(CompleteContracts$ObligatedAmountIsArmy)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsArmy <- is.na(CompleteContracts$ObligatedAmountIsArmy)
+
+CompleteContracts$pIsNavy <- CompleteContracts$ObligatedAmountIsNavy/CompleteContracts$Action.Obligation
+CompleteContracts$pIsNavy[is.nan(CompleteContracts$pIsNavy)|is.infinite(CompleteContracts$pIsNavy)|is.na(CompleteContracts$ObligatedAmountIsNavy)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsNavy <- is.na(CompleteContracts$ObligatedAmountIsNavy)
+
+CompleteContracts$pIsAirForce <- CompleteContracts$ObligatedAmountIsAirForce/CompleteContracts$Action.Obligation
+CompleteContracts$pIsAirForce[is.nan(CompleteContracts$pIsAirForce)|is.infinite(CompleteContracts$pIsAirForce)|is.na(CompleteContracts$ObligatedAmountIsAirForce)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsAirForce <- is.na(CompleteContracts$ObligatedAmountIsAirForce)
+
+CompleteContracts$pIsOtherDoD <- CompleteContracts$ObligatedAmountIsOtherDoD/CompleteContracts$Action.Obligation
+CompleteContracts$pIsOtherDoD[is.nan(CompleteContracts$pIsOtherDoD)|is.infinite(CompleteContracts$pIsOtherDoD)|is.na(CompleteContracts$ObligatedAmountIsOtherDoD)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsOtherDoD <- is.na(CompleteContracts$ObligatedAmountIsOtherDoD)
+```
+
+
+Reclass factors:
+```{r}
+CompleteContracts$UnmodifiedCustomer %<>% factor()
+CompleteContracts$Customer %<>% factor()
+CompleteContracts$SubCustomer %<>% factor()
+CompleteContracts$UnmodifiedSubCustomer %<>% factor()
+```
+
+
+
+
+
+Write Out:
+```{r}
+save(CompleteContracts, file = "contracts_4.Rda")
+rm(CompleteContracts)
+CompleteContracts <- key_vars
+```
+
+
+
+-----
+Next File:
+
+```{r}
+rm(file_11)
+file_12 <- fread(
+  "defense_contract_SP_ContractPricingCustomer.csv",
+  na.strings = c("NA","",NA,"NULL"),
+  data.table = FALSE
+)
+```
+
+```{r}
+file_12 %<>% standardize_names()
+str(file_12)
+```
+
+
+```{r}
+CompleteContracts %<>% left_join(file_12)
+```
+
+
+Follow Greg in variable creation:
+
+```{r}
+CompleteContracts$IsLabeledPricing[is.na(CompleteContracts$IsLabeledPricing)] <- 0
+
+#Process FixedOrCost
+CompleteContracts$pIsFixedPrice <- CompleteContracts$ObligatedAmountIsFixedPrice/CompleteContracts$Action.Obligation
+CompleteContracts$pIsFixedPrice[is.nan(CompleteContracts$ObligatedAmountIsFixedPrice)|is.na(CompleteContracts$ObligatedAmountIsFixedPrice)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsFixedPrice <- is.na(CompleteContracts$ObligatedAmountIsFixedPrice)
+
+
+CompleteContracts$pIsCostBased <- CompleteContracts$ObligatedAmountIsCostBased/CompleteContracts$Action.Obligation
+CompleteContracts$pIsCostBased[is.nan(CompleteContracts$ObligatedAmountIsCostBased)|is.na(CompleteContracts$ObligatedAmountIsCostBased)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsCostBased <- 
+  is.na(CompleteContracts$ObligatedAmountIsCostBased)
+
+CompleteContracts$pIsCombination <- CompleteContracts$ObligatedAmountIsCombination/CompleteContracts$Action.Obligation
+CompleteContracts$pIsCombination[is.nan(CompleteContracts$ObligatedAmountIsCombination)|is.na(CompleteContracts$ObligatedAmountIsCombination)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsCombination <- 
+  is.na(CompleteContracts$ObligatedAmountIsCombination)
+
+
+CompleteContracts$FixedOrCost <- character(length = nrow(CompleteContracts))
+CompleteContracts$FixedOrCost[CompleteContracts$pIsFixedPrice>0  |
+                                  CompleteContracts$pIsCostBased>0 | 
+                                  CompleteContracts$pIsCombination>0]<-"Combination or Other"
+
+CompleteContracts$FixedOrCost[CompleteContracts$pIsFixedPrice>=0.95|(CompleteContracts$IsFixedPrice==1 & (CompleteContracts$pIsCombination<=0.05))]<-"Fixed-Price"
+CompleteContracts$FixedOrCost[CompleteContracts$pIsCostBased>=0.95|(CompleteContracts$IsCostBased==1 & (CompleteContracts$pIsCombination<=0.05))]<-"Cost-Based"
+CompleteContracts$FixedOrCost<-factor(CompleteContracts$FixedOrCost,levels=c("Fixed-Price","Cost-Based","Combination or Other"))
+
+#Process Fee
+
+CompleteContracts$pIsIncentive <- CompleteContracts$ObligatedAmountIsIncentive/CompleteContracts$Action.Obligation
+CompleteContracts$pIsIncentive[is.nan(CompleteContracts$ObligatedAmountIsIncentive)|is.na(CompleteContracts$ObligatedAmountIsIncentive)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsIncentive <- 
+  is.na(CompleteContracts$ObligatedAmountIsCostBased)
+
+CompleteContracts$pIsAwardFee <- CompleteContracts$ObligatedAmountIsAwardFee/CompleteContracts$Action.Obligation
+CompleteContracts$pIsAwardFee[is.nan(CompleteContracts$ObligatedAmountIsAwardFee)|is.na(CompleteContracts$ObligatedAmountIsAwardFee)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsAwardFee <- 
+  is.na(CompleteContracts$ObligatedAmountIsAwardFee)
+
+
+CompleteContracts$pIsFFPorNoFee <- CompleteContracts$ObligatedAmountIsFFPorNoFee/CompleteContracts$Action.Obligation
+CompleteContracts$pIsFFPorNoFee[is.nan(CompleteContracts$ObligatedAmountIsFFPorNoFee)|is.na(CompleteContracts$ObligatedAmountIsFFPorNoFee)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsFFPorNoFee <- 
+  is.na(CompleteContracts$ObligatedAmountIsFFPorNoFee)
+
+
+
+CompleteContracts$pIsFixedFee <- CompleteContracts$ObligatedAmountIsFixedFee/CompleteContracts$Action.Obligation
+CompleteContracts$pIsFixedFee[is.nan(CompleteContracts$ObligatedAmountIsFixedFee)|is.na(CompleteContracts$ObligatedAmountIsFixedFee)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsFixedFee <- 
+  is.na(CompleteContracts$ObligatedAmountIsFixedFee)
+
+
+CompleteContracts$pIsOtherFee <- CompleteContracts$ObligatedAmountIsOtherFee/CompleteContracts$Action.Obligation
+CompleteContracts$pIsOtherFee[is.nan(CompleteContracts$ObligatedAmountIsOtherFee)|is.na(CompleteContracts$ObligatedAmountIsOtherFee)] <- 0
+CompleteContracts$Is_NA_ObligatedAmountIsOtherFee <- 
+  is.na(CompleteContracts$ObligatedAmountIsOtherFee)
+
+
+#AssignFee
+CompleteContracts$Fee <- character(length = nrow(CompleteContracts))
+CompleteContracts$Fee[CompleteContracts$pIsAwardFee>=0.9|(CompleteContracts$IsAwardFee==1
+                      & CompleteContracts$pIsCombination<=0.05)]<-"Award Fee"
+CompleteContracts$Fee[CompleteContracts$pIsIncentive>=0.9|(CompleteContracts$IsIncentive==1
+                      & CompleteContracts$pIsCombination<=0.05)]<-"Incentive"
+CompleteContracts$Fee[CompleteContracts$pIsFFPorNoFee>=0.9|(CompleteContracts$IsFFPorNoFee==1
+                      & CompleteContracts$pIsCombination<=0.05)]<-"FFP or No Fee"
+CompleteContracts$Fee[CompleteContracts$pIsFixedFee>=0.9|(CompleteContracts$IsFixedFee==1
+                      & CompleteContracts$pIsCombination<=0.05)]<-"Fixed Fee"
+
+CompleteContracts$Fee[CompleteContracts$pIsOtherFee>=0.9|
+                          CompleteContracts$IsOtherFee==1 | 
+                          CompleteContracts$pIsCombination>0.1|
+                          (is.na(CompleteContracts$Fee) & CompleteContracts$IsLabeledPricing==1)]<-
+    "Combination or Other Fee"
+```
+
+
+
+Reclass factors:
+```{r}
+CompleteContracts$Fee %<>% factor()
+CompleteContracts$Pricing.Mechanism.Code %<>% factor()
+CompleteContracts$UnmodifiedTypeOfContractPricing %<>% factor()
+```
+
+
+Write out:
+```{r}
+save(CompleteContracts, file = "contracts_5.Rda")
+rm(CompleteContracts)
+rm(key_vars)
+```
+
