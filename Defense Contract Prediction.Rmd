@@ -18,7 +18,7 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ## Outside Packages
-```{r}
+```{r, message=FALSE}
 library(randomForest)
 library(dplyr)
 library(caret)
@@ -32,7 +32,8 @@ The data used in this analysis have already been aggregated and somewhat cleaned
 #load data
 rm(list=ls(all=TRUE))
 githubURL <- "https://github.com/GeorgetownMcCourt/DoD-over-budget-prediction/blob/master/clean_dataset.Rda"
-load(url(githubURL))
+download.file(githubURL,"myfile")
+source("myfile")
 df <- dataset
 ```
 
@@ -165,6 +166,9 @@ df_balanced <- rbind(df_non,downsample)
 
 ## Partitioning: Train-Validate-Test
 
+The available data are randomly split into three groups: 70% of observations go into a training set, 15% go to a validate set to check the predictive accuracy of the trained model, and a final 15% for a final test of the model settled on after experimenting with the train-validate combination.
+
+Note that while the bootstrapped nature of the Random Forest approach does provide a certain amount of "Out of Bag" cases for free testing, but with the large number of observations we have available, we safely proceed with the more rigourous formal partitioniong.
 
 ```{r}
 
@@ -186,6 +190,10 @@ df_balanced <- rbind(df_non,downsample)
 
 ## Model: Random Forest
 
+Our model of choice is a Random Forest using the 9 variables listed to make a classification prediction of yes or no for the outcome variable *IsTerminated*. The model is run on the training set *df_train*.
+
+The configuration shown here, consisting of 9 input variables, and 100 trees, is the final result of the iteration of trying different configurations of the Train-Validate loop. The number of decision trees is set to only 100 instead of the default 500 because the *tuneRF* function below shows that there is little precision benefit after the first 100 trees, despite increasing computational costs.
+
 ```{r}
 ###random forest classification
 set.seed(123)
@@ -206,7 +214,7 @@ rf <- randomForest(IsTerminated ~
                    type = "classification")
 ```
 
-
+Because the *importance* paramater above is set to TRUE, we can display the relative importance of different input variables in the predicted outcomes of the model. The values shown have little directly intepretable value, but shows that *UnmodifiedDays*, *UnmodifiedPlatformPortfolio*, and *UnmodifiedProductOrServiceArea* show up as crticial variables more often than other input factors. This means that the length of the contract and the type of work undertaken are more likely to predict a contract's termination than the included details of the contractor or whether international work is involved.
 
 ```{r}
 #check importance of each variable
@@ -217,7 +225,7 @@ imp
 varImpPlot(rf)
 ```
 
-
+As discussed above, *tuneRF* here produces a chart showing that there is relatively little benefit to additional computationally-intensive trees after the first 100 or so.
 
 ```{r}
 #find optimal mtry 
@@ -238,9 +246,13 @@ tuneRF(df_train[,
 
 ## Measuring Model Output
 
+With this trained Random Forest model in hand, we can now evaluate its accuracy in predicting outcome values against not only itself (as an internal consistency check) and the validate set, but also the holdout test set.
+
 ```{r}
 pred.check(df_train, rf)
 pred.check(df_valid, rf)
 pred.check(df_test, rf)
 ```
 
+From this, we see a stable Mean F1 of around 0.85 for predictions in all three sets, a decently high score that 
+roughly means that the model can predict contract terminations with 85% accuracy.
