@@ -2,8 +2,8 @@
 title: "DoD Contract Overages"
 date: "May 8, 2017"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 authors: Bryan Baird, Loren Lipsey, Tommie Thompson
 ---
 
@@ -17,15 +17,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 With an annual budget in excess of $500 Billion, the U.S. Department of Defense (DOD) is one of the single largest money-spenders in the world. Each year, they award billions of dollars in contracts to research, develop, build, procure, or otherwise produce materials and technology to promote the public defense. These contracts can take vastly different forms and terms, encompassing everything from next-generation weapon systems to replenishing office supplies.
 
-Given the sheer scope and variety of these contacts, it can be difficult for those making procurement decisions to reliably know what new contracts are the best deals, and which have the highest risk. Using a record of completed DoD contracts from the past 16 years, we use a Random Forest model to see what combination of contract features (e.g. duration, cost, competitive bids) are the most powerful predictors for whether a given new contract will a) exceed its original budget (i.e. a raised cost ceiling), and/or b) be terminated before completion.
+Given the sheer scope and variety of these contacts, it can be difficult for those making procurement decisions to reliably know what new contracts are the best deals, and which have the highest risk. Using a record of completed DoD contracts from the past 16 years, we use a Random Forest model to see what combination of contract features (e.g. duration, cost, competitive bids) are the most powerful predictors for whether a given new contract will be terminated before completion.
 
 This file contains the code to train, run, and evaluate the Random Forest model from data that have already been appropriately cleaned and aggregated to the appropirate contract format. The preliminary scripts to perform that cleaning and aggregation can be found separately on the project GitHub Repo.
 
 ## Outside Packages
+The following packages are required for our analysis:
 ```{r, message=FALSE}
 library(randomForest)
 library(dplyr)
 library(caret)
+library(pROC)
 ```
 
 ## Loading and Cleaning Data
@@ -33,10 +35,9 @@ library(caret)
 The data used in this analysis have already been aggregated and somewhat cleaned; they are loaded from our online repository, which also includes the scripts used to access and aggregate the raw data. For more information on the data source, see the README file.
 
 ```{r}
-#load data
 rm(list=ls(all=TRUE))
-githubURL <- "https://www.github.com/GeorgetownMcCourt/DoD-over-budget-prediction/raw/master/clean_dataset.csv"
-df <- read.csv(githubURL)
+load("clean_dataset.Rda")
+df <- dataset
 ```
 
 
@@ -103,7 +104,7 @@ As this is a case of supervised learning, our analysis cannot make use of data p
 df <- df[!is.na(df$IsTerminated),]
 ```
 
-For the sake of parsimony, we also drop variables that are not included in out analysis, either because they are not predictive (e.g. the contract ID) or missing so many observations that their inclusion would severely dimish sample size without imputation.
+For the sake of parsimony, we also drop variables that are not included in our analysis, either because they are not predictive (e.g. the contract ID) or missing so many observations that their inclusion would severely diminish sample size without imputation.
 
 ```{r}
 #subset relevant variables (drop irrelevant, date-based, and more than 1mm missing)
@@ -112,11 +113,10 @@ drop <- names(df) %in% c("CSIScontractID", "StartFiscal_Year", "MinOfSignedDate"
                          "UnmodifiedUltimateCompletionDate", "UnmodifiedLastDateToOrder",
                          "Unmodifiedmultipleorsingleawardidc", "UnmodifiedLastDateToOrder",
                          "UnmodifiedIsOnlyOneSource", "UnmodifiedIsFollowonToCompetedAction",
-                        "UnmodifiedIsCombination", "Unmodifiedaddmultipleorsingawardidc",
-                        "UnmodifiedCustomer","UnmodifiedIsFullAndOpen", "UnmodifiedIsSomeCompetition",
-                        "UnmodifiedNumberOfOffersReceived",
-      #UnmodifiedPlaceCountryISO3 has too many levels. How do fix??
-                        "UnmodifiedPlaceCountryISO3", "pChangeOrderUnmodifiedBaseAndAll")
+                         "UnmodifiedIsCombination", "Unmodifiedaddmultipleorsingawardidc",
+                         "UnmodifiedCustomer","UnmodifiedIsFullAndOpen", "UnmodifiedIsSomeCompetition",
+                         "UnmodifiedNumberOfOffersReceived",
+                         "UnmodifiedPlaceCountryISO3", "pChangeOrderUnmodifiedBaseAndAll")
 df <- df[!drop]
 ```
 
@@ -130,9 +130,6 @@ df$UnmodifiedAwardOrIDVcontractactiontype <- as.character(df$UnmodifiedAwardOrID
 df$UnmodifiedSubCustomer <- as.character(df$UnmodifiedSubCustomer)
 
 #recode NA to dummy for those with >100k NA
-#Removed vars: #df$UnmodifiedIsFullAndOpen[is.na(df$UnmodifiedIsFullAndOpen)] <- 3
-#df$UnmodifiedIsSomeCompetition[is.na(df$UnmodifiedIsSomeCompetition)] <- 2
-#df$UnmodifiedNumberOfOffersReceived[is.na(df$UnmodifiedNumberOfOffersReceived)] <- 1000
 df$UnmodifiedAwardOrIDVcontractactiontype[is.na(df$UnmodifiedAwardOrIDVcontractactiontype)] <- "Unknown"
 df$UnmodifiedSubCustomer[is.na(df$UnmodifiedSubCustomer)] <- "Unknown"
 
@@ -223,33 +220,33 @@ rf <- randomForest(IsTerminated ~
                    type = "classification")
 ```
 
-Because the *importance* paramater above is set to TRUE, we can display the relative importance of different input variables in the predicted outcomes of the model. The values shown have little directly intepretable value, but shows that *UnmodifiedDays*, *UnmodifiedPlatformPortfolio*, and *UnmodifiedProductOrServiceArea* show up as crticial variables more often than other input factors. This means that the length of the contract and the type of work undertaken are more likely to predict a contract's termination than the included details of the contractor or whether international work is involved.
+Because the *importance* paramater above is set to TRUE, we can display the relative importance of different input variables in the predicted outcomes of the model. The values shown have little directly intepretable value, but shows that *UnmodifiedDays* and *UnmodifiedIsInternational* show up as crticial variables more often than other input factors. This means that the length of the contract and the presence or absence of international work were more likely to predict a contract's termination than the included details of the contractor the targetted completion date at the time of signing.
 
 ```{r}
 #check importance of each variable
 imp <- as.data.frame(sort(importance(rf)[,1],decreasing = TRUE),optional = T)
 names(imp) <- "% Inc MSE"
 imp
-
-varImpPlot(rf)
 ```
 
-As discussed above, *tuneRF* here produces a chart showing that there is relatively little benefit to additional computationally-intensive trees after the first 100 or so.
+As discussed above, *tuneRF* here produces a chart showing that there is relatively little benefit to additional computationally-intensive levels to trees after the first 2 levels.
+
+Similarly, the basic plot of the Random Forest object *rf* shows that error decreases level off before the point of the first 100 trees, justifying the use of 100 trees instead of the default 500.
 
 ```{r}
-#find optimal mtry 
-tuneRF(df_train[,
-                #put in all predictors in final RF model
-                c("IsTerminated","UnmodifiedIsInternational","UnmodifiedCurrentCompletionDate",
-                  "UnmodifiedDays","UnmodifiedPlatformPortfolio",
-                  "UnmodifiedProductOrServiceArea","UnmodifiedSimpleArea",
-                  "UnmodifiedAwardOrIDVcontractactiontype","UnmodifiedSubCustomer",
-                  "UnmodifiedTypeOfContractPricing")], 
-       #put in outcome
+tuneRF(df_train[,c("IsTerminated","UnmodifiedIsInternational","UnmodifiedCurrentCompletionDate",
+                   "UnmodifiedDays","UnmodifiedPlatformPortfolio",
+                   "UnmodifiedProductOrServiceArea","UnmodifiedSimpleArea",
+                   "UnmodifiedAwardOrIDVcontractactiontype","UnmodifiedSubCustomer",
+                   "UnmodifiedTypeOfContractPricing")], 
+       #IsTerminated as the outcome variable
        df_train$IsTerminated, 
        ntreeTry = 400, na.action = na.omit, 
        mtryStart = 1, stepFactor = 2, 
        improve = 0.001, trace = TRUE, plot = F)
+
+#Plotting the Random Forest object shows the decreasing error with additional trees
+plot(rf)
 
 ```
 
