@@ -1,8 +1,10 @@
 ---
 title: "DoD Contract Overages"
-authors: "Bryan Baird, Loren Lipsey, Tommie Thompson"
 date: "May 8, 2017"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
+authors: Bryan Baird, Loren Lipsey, Tommie Thompson
 ---
 
 ```{r setup, include=FALSE}
@@ -13,9 +15,11 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+With an annual budget in excess of $500 Billion, the U.S. Department of Defense (DOD) is one of the single largest money-spenders in the world. Each year, they award billions of dollars in contracts to research, develop, build, procure, or otherwise produce materials and technology to promote the public defense. These contracts can take vastly different forms and terms, encompassing everything from next-generation weapon systems to replenishing office supplies.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Given the sheer scope and variety of these contacts, it can be difficult for those making procurement decisions to reliably know what new contracts are the best deals, and which have the highest risk. Using a record of completed DoD contracts from the past 16 years, we use a Random Forest model to see what combination of contract features (e.g. duration, cost, competitive bids) are the most powerful predictors for whether a given new contract will a) exceed its original budget (i.e. a raised cost ceiling), and/or b) be terminated before completion.
+
+This file contains the code to train, run, and evaluate the Random Forest model from data that have already been appropriately cleaned and aggregated to the appropirate contract format. The preliminary scripts to perform that cleaning and aggregation can be found separately on the project GitHub Repo.
 
 ## Outside Packages
 ```{r, message=FALSE}
@@ -31,10 +35,8 @@ The data used in this analysis have already been aggregated and somewhat cleaned
 ```{r}
 #load data
 rm(list=ls(all=TRUE))
-githubURL <- "https://github.com/GeorgetownMcCourt/DoD-over-budget-prediction/blob/master/clean_dataset.Rda"
-download.file(githubURL,"myfile.Rda")
-source("myfile.Rda")
-df <- dataset
+githubURL <- "https://www.github.com/GeorgetownMcCourt/DoD-over-budget-prediction/raw/master/clean_dataset.csv"
+df <- read.csv(githubURL)
 ```
 
 
@@ -135,7 +137,7 @@ df$UnmodifiedAwardOrIDVcontractactiontype[is.na(df$UnmodifiedAwardOrIDVcontracta
 df$UnmodifiedSubCustomer[is.na(df$UnmodifiedSubCustomer)] <- "Unknown"
 
 #recode outcome IsTerminated with characters
-df$IsTerminated <- ifelse(df$IsTerminated == 0, "Terminated", "Not Terminated")
+df$IsTerminated <- ifelse(df$IsTerminated == 0, "Not Terminated", "Terminated")
 
 #turn all char into factor
 for(i in colnames(df)) {
@@ -157,7 +159,6 @@ for(i in colnames(df)) {
 
 
 ```{r}
-#too lazy to type out all variables in quotations. Doing it quickly here
 cat(colnames(df))#copy and paste this into text line
 
 var <- "LabeledMDAP UnmodifiedIsInternational UnmodifiedContractObligatedAmount UnmodifiedContractBaseAndExercisedOptionsValue UnmodifiedContractBaseAndAllOptionsValue UnmodifiedCurrentCompletionDate IsTerminated UnmodifiedDays UnmodifiedPlatformPortfolio UnmodifiedProductOrServiceArea UnmodifiedSimpleArea UnmodifiedAwardOrIDVcontractactiontype UnmodifiedSubCustomer UnmodifiedTypeOfContractPricing UnmodifiedIsFixedPrice UnmodifiedIsCostBased UnmodifiedIsIncentive UnmodifiedIsAwardFee UnmodifiedIsFFPorNoFee UnmodifiedIsFixedFee UnmodifiedIsOtherFee"
@@ -179,9 +180,9 @@ df_term <- df_comp[df_comp$IsTerminated == "Terminated",]
 df_non <- df_comp[df_comp$IsTerminated == "Not Terminated",]
 
 set.seed(3)
-downsample <- df_term[sample(nrow(df_term),57724),]
+downsample <- df_non[sample(nrow(df_non),57724),]
 
-df_balanced <- rbind(df_non,downsample)
+df_balanced <- rbind(df_term,downsample)
 ```
 
 
@@ -192,21 +193,18 @@ The available data are randomly split into three groups: 70% of observations go 
 Note that while the bootstrapped nature of the Random Forest approach does provide a certain amount of "Out of Bag" cases for free testing, but with the large number of observations we have available, we safely proceed with the more rigourous formal partitioniong.
 
 ```{r}
+set.seed(100)
+sample_train <- floor(.7*nrow(df_balanced))
+sample_valid <- floor(.15*nrow(df_balanced))
 
-{
-  set.seed(100)
-  sample_train <- floor(.7*nrow(df_balanced))
-  sample_valid <- floor(.15*nrow(df_balanced))
-  
-  index_train <- sort(sample(seq_len(nrow(df_balanced)), size=sample_train))
-  index_not.train <- setdiff(seq_len(nrow(df_balanced)), index_train)
-  index_valid  <- sort(sample(index_not.train, size=sample_valid))
-  index_test  <- setdiff(index_not.train, index_valid)
-  
-  df_train  <- df_balanced[index_train, ]
-  df_valid <- df_balanced[index_valid, ]
-  df_test <- df_balanced[index_test, ]
-}
+index_train <- sort(sample(seq_len(nrow(df_balanced)), size=sample_train))
+index_not.train <- setdiff(seq_len(nrow(df_balanced)), index_train)
+index_valid  <- sort(sample(index_not.train, size=sample_valid))
+index_test  <- setdiff(index_not.train, index_valid)
+
+df_train  <- df_balanced[index_train, ]
+df_valid <- df_balanced[index_valid, ]
+df_test <- df_balanced[index_test, ]
 ```
 
 ## Model: Random Forest
@@ -288,7 +286,7 @@ auc.check(df_test, rf)
 
 ## Conclusion and Next Steps
 
-In conclusion, using only 9 input factors out of dozens of possible factors, a Random Forest model is able to predict whether not a Defense contract will be terminated with 85% accuracy. 
+In conclusion, using only 9 input factors out of dozens of possible factors, a Random Forest model is able to predict whether not a Defense contract will be terminated with 85% accuracy. This result represents a **very** conservative approach with relatively tiny amount of potential variables and observations that are more stable and polished than the rest of the available data. As a proof of concept, this shows that there is considerable promise if the approach were to continue with the following improvements.
 
 ### Extending analysis to other populations
 
