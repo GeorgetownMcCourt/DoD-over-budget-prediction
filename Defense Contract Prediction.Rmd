@@ -32,8 +32,8 @@ The data used in this analysis have already been aggregated and somewhat cleaned
 #load data
 rm(list=ls(all=TRUE))
 githubURL <- "https://github.com/GeorgetownMcCourt/DoD-over-budget-prediction/blob/master/clean_dataset.Rda"
-download.file(githubURL,"myfile")
-source("myfile")
+download.file(githubURL,"myfile.Rda")
+source("myfile.Rda")
 df <- dataset
 ```
 
@@ -72,6 +72,22 @@ pred.check <- function(x,y) {
   #so I only need to modify one model when checking 
   pred <- predict(y, x, type="class")
   z <- meanf1(x$IsTerminated, pred) 
+  print(z)
+}
+```
+
+The third function is to simply calculate the "Area Under the Curve", or *AUC*, score. AUC represents a slightly different way of measuring accuracy than Mean F1, but both measure on the same scale of 0--1. For a binary outcome like *IsTerminated*, the difference between the AUC and 0.5 is the extent to which the model predicts outcomes more accurately than a random coin flip.
+
+```{r}
+#simple AUC function
+auc.check <- function(x,y) { 
+  #"x" is the partition for validation and "y" is the model 
+  pred <- predict(y, x, type="class")
+  #convert to numeric binary so auc can be calculated
+  pred <- ifelse(pred == "Terminated", 1, 0)
+  real <- ifelse(x$IsTerminated == "Terminated", 1, 0)
+  #calculate auc
+  z <- auc(real, pred) 
   print(z)
 }
 ```
@@ -147,7 +163,12 @@ cat(colnames(df))#copy and paste this into text line
 var <- "LabeledMDAP UnmodifiedIsInternational UnmodifiedContractObligatedAmount UnmodifiedContractBaseAndExercisedOptionsValue UnmodifiedContractBaseAndAllOptionsValue UnmodifiedCurrentCompletionDate IsTerminated UnmodifiedDays UnmodifiedPlatformPortfolio UnmodifiedProductOrServiceArea UnmodifiedSimpleArea UnmodifiedAwardOrIDVcontractactiontype UnmodifiedSubCustomer UnmodifiedTypeOfContractPricing UnmodifiedIsFixedPrice UnmodifiedIsCostBased UnmodifiedIsIncentive UnmodifiedIsAwardFee UnmodifiedIsFFPorNoFee UnmodifiedIsFixedFee UnmodifiedIsOtherFee"
 gsub(" ", " + ", var)#copy and paste this into formula
 cat(gsub("(\\w+)", '"\\1"', var))
+```
 
+
+Finally, we remove missing cases since our analytical methods cannot handle them. We also balance the dataset on the outcome variable. Before balancing, the size of "Not Terminated" observations was only 1% that of "Terminated" cases. We balanced the ratio to 50%. The final dataset, after balancing the outcome and remove irrelevant data is 86,586. This is a big drop from the original size of over two million, but without balancing we would have had an overconfident model. 
+
+```{r}
 #can only use complete cases
 df_comp <- df[complete.cases(df),]
 
@@ -256,3 +277,27 @@ pred.check(df_test, rf)
 
 From this, we see a stable Mean F1 of around 0.85 for predictions in all three sets, a decently high score that 
 roughly means that the model can predict contract terminations with 85% accuracy.
+
+Similarly, the AUC scores are favorably high and stable between train, validate, and test, suggesting a relatively robust predictive capability without any sign of overfitting.
+
+```{r}
+auc.check(df_train, rf)
+auc.check(df_valid, rf)
+auc.check(df_test, rf)
+```
+
+## Conclusion and Next Steps
+
+In conclusion, using only 9 input factors out of dozens of possible factors, a Random Forest model is able to predict whether not a Defense contract will be terminated with 85% accuracy. 
+
+### Extending analysis to other populations
+
+The set of observations used for this proof of concept is very restricted to start. Of millions of total contracts, only 82,000 meet all of the criteria for inclusion, raising the risk of weaker than expected predictive power when working with cases that are even just slightly different from the defined set.
+
+### Further cleaning to maximize both variables and observations
+
+More fine-grain tuning, especially around the many missing values in the aggregated data, would increase the predictive power and reliability of the model in two key ways: First, the integrity of more input variables could be more throughly established, allowing them to be easily added to the Random Forest without fear of endogeniety. Second, fewer observations would need to be dropped to run the model, increasing presicion and generalizability by taking full advantage of as many example contracts as possible.
+
+### Predicting other risk categories
+
+With some additional data cleaning and investigation, it should be possible to reliably apply a categorical variable to all contracts indicating whether or not the contract went over budget, and if so, a numerical variable showing by how much the budget was exceeded. If these values can be shown to be reliable at the contract level, it would be a straightforward endeavour to repurporse the Random Forest model used here to predict overages instead of terminations.
