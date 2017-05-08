@@ -157,17 +157,7 @@ for(i in colnames(df)) {
 
 ```
 
-
-```{r}
-cat(colnames(df))#copy and paste this into text line
-
-var <- "LabeledMDAP UnmodifiedIsInternational UnmodifiedContractObligatedAmount UnmodifiedContractBaseAndExercisedOptionsValue UnmodifiedContractBaseAndAllOptionsValue UnmodifiedCurrentCompletionDate IsTerminated UnmodifiedDays UnmodifiedPlatformPortfolio UnmodifiedProductOrServiceArea UnmodifiedSimpleArea UnmodifiedAwardOrIDVcontractactiontype UnmodifiedSubCustomer UnmodifiedTypeOfContractPricing UnmodifiedIsFixedPrice UnmodifiedIsCostBased UnmodifiedIsIncentive UnmodifiedIsAwardFee UnmodifiedIsFFPorNoFee UnmodifiedIsFixedFee UnmodifiedIsOtherFee"
-gsub(" ", " + ", var)#copy and paste this into formula
-cat(gsub("(\\w+)", '"\\1"', var))
-```
-
-
-Finally, we remove missing cases since our analytical methods cannot handle them. We also balance the dataset on the outcome variable. Before balancing, the size of "Not Terminated" observations was only 1% that of "Terminated" cases. We balanced the ratio to 50%. The final dataset, after balancing the outcome and remove irrelevant data is 86,586. This is a big drop from the original size of over two million, but without balancing we would have had an overconfident model. 
+Finally, we drop all incomplete observations, insteaad of attempting to impute. (Random Forests do not accomodate missing values well.) We also balance the dataset on the outcome variable. Before balancing, there is only approximately 1 Terminated contract for every 100 Not Terminated contract; we balanced that ratio to 50% by downsampling the Not Terminated values. The final dataset, after balancing the outcome and remove irrelevant data is 86,586. This represents a very conservative approach for our proof of concept, but as we explore more robust predictions, we will want to incorporate upsampling or bootstrapping to make use of more observations.
 
 ```{r}
 #can only use complete cases
