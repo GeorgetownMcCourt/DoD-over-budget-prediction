@@ -37,12 +37,12 @@ Later versions may include additional code to directly query the raw database fo
 * (April 2017) Identified data source
 * (April 2017) Identified candidate dependent and independent variables
 * (April 2017) Procured codebook descriptions for component variables
-* (In progress) Narrowing dataset to population of key analysis
-* (In progress) Recoded variables for more precision and detail
-* (In progress) Model specification and training for supervised learning algorithm
-* (TBD) Project results for test group to verify model predictive power
-* (TBD) Analyze relative importance/predictive power of component variables
-* (TBD) Produce report for model and results
+* (May 2017) Narrowing dataset to population of key analysis
+* (May 2017) Recoded variables for more precision and detail
+* (May 2017) Model specification and training for supervised learning algorithm
+* (May 2017) Project results for test group to verify model predictive power
+* (May 2017) Analyze relative importance/predictive power of component variables
+* (May 2017) Produce report for model and results
 
 ## Credits
 Project Team: Bryan Baird, Loren Lipsy, Tommie Thompson -- Georgetown University
